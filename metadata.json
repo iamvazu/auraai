@@ -1,0 +1,8 @@
+{
+  "name": "Aura AI for Urban Ladder",
+  "description": "Transform hand-drawn sketches into photorealistic 3D renders using Urban Ladder's Oasis Collection. Features Vastu analysis and direct experience center connectivity.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
