@@ -7,12 +7,50 @@ import {
 import { analyzeSketch, generateRenders } from '../services/geminiService';
 import { AnalysisResult } from '../types';
 import BeforeAfterSlider from '../components/BeforeAfterSlider';
+import { PRODUCT_CATALOG } from '../data/products';
+import { FurnitureItem } from '../types';
+
+// Helper: Client-side Fuzzy Matcher
+const findBestMatch = (query: string, visualDesc: string): FurnitureItem | null => {
+    if (!query) return null;
+    const searchTerms = query.toLowerCase().split(' ').filter(w => w.length > 2);
+
+    let bestMatch: FurnitureItem | null = null;
+    let maxScore = 0;
+
+    PRODUCT_CATALOG.forEach(product => {
+        let score = 0;
+        const pName = product.name.toLowerCase();
+        const pDesc = product.description.toLowerCase();
+        const pCat = product.category.toLowerCase();
+        const pMat = product.material.toLowerCase();
+
+        // High weight: exact word match in name
+        searchTerms.forEach(term => {
+            if (pName.includes(term)) score += 10;
+            if (pCat.includes(term)) score += 5;
+            if (pDesc.includes(term)) score += 3;
+            if (pMat.includes(term)) score += 4;
+
+            // Visual characteristics bonus
+            if (visualDesc && visualDesc.toLowerCase().includes(term)) score += 2;
+        });
+
+        if (score > maxScore) {
+            maxScore = score;
+            bestMatch = product;
+        }
+    });
+
+    return maxScore > 5 ? bestMatch : null; // Threshold to avoid garbage matches
+};
 
 const DesignStudio = ({ onStepChange }: { onStepChange: (step: 'upload' | 'analyzing' | 'result') => void }) => {
     const [step, setStep] = useState<'upload' | 'analyzing' | 'result'>('upload');
     const [sketch, setSketch] = useState<string | null>(null);
     const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
     const [renders, setRenders] = useState<string[]>([]);
+    const [matchedProducts, setMatchedProducts] = useState<FurnitureItem[]>([]);
     const [activeRenderIndex, setActiveRenderIndex] = useState(0);
     const [loadingMsg, setLoadingMsg] = useState('Initializing Aura Studio...');
     const [showVastuOverlay, setShowVastuOverlay] = useState(false);
@@ -77,6 +115,21 @@ const DesignStudio = ({ onStepChange }: { onStepChange: (step: 'upload' | 'analy
             setLoadingMsg('Product Matcher: Querying Pinecone Vector DB...');
             setMatcherStatus('active');
             await new Promise(r => setTimeout(r, 800));
+            // 3. Matcher Agent
+            setLoadingMsg('Product Matcher: Finding best items in catalog...');
+            setMatcherStatus('active');
+
+            const matches: FurnitureItem[] = [];
+            if (analysisResult.objects) {
+                analysisResult.objects.forEach((obj: any) => {
+                    // Use the AI's "search_query" specifically for this
+                    const match = findBestMatch(obj.search_query || obj.object, obj.visual_characteristics || "");
+                    if (match) matches.push(match);
+                });
+            }
+            setMatchedProducts(matches);
+
+            await new Promise(r => setTimeout(r, 600)); // UI pacing
             setMatcherStatus('done');
 
             // 4. Render Agent
@@ -315,51 +368,51 @@ const DesignStudio = ({ onStepChange }: { onStepChange: (step: 'upload' | 'analy
 
                         {/* Product Matcher Results */}
                         <div className="space-y-6">
-                            {analysis?.objects && analysis.objects.length > 0 ? analysis.objects.map((obj, i) => (
-                                <div key={i} className="flex gap-4 group cursor-pointer">
+                            {matchedProducts.length > 0 ? matchedProducts.map((product, i) => (
+                                <div key={i} className="flex gap-4 group cursor-pointer hover:bg-stone-50 p-2 rounded-xl transition-all">
                                     <div className="w-20 h-20 bg-stone-100 rounded-lg shrink-0 border border-stone-200 flex items-center justify-center overflow-hidden relative">
-                                        {/* Placeholder for product img search based on SKU - Real app would have images */}
-                                        <div className="text-xs text-stone-400 font-bold text-center p-2">{obj.suggestedSKU || obj.object}</div>
-                                        <div className="absolute inset-0 bg-black/5 group-hover:bg-black/0 transition-colors"></div>
+                                        <img src={product.image} className="w-full h-full object-cover" alt={product.name} />
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-stone-800 text-sm line-clamp-1 group-hover:text-orange-600 transition-colors">
-                                            {obj.suggestedSKU ? `${obj.suggestedSKU} - Oasis` : `Urban Ladder ${obj.object}`}
+                                            {product.name}
                                         </h4>
-                                        <div className="text-xs text-stone-400 mb-2">{obj.confidence > 0.8 ? 'High Match' : 'Suggested'}</div>
+                                        <div className="text-xs text-stone-400 mb-2">{product.collection} Collection</div>
                                         <div className="flex items-center gap-2">
-                                            <span className="font-bold text-orange-600">₹{(Math.random() * 20000 + 5000).toFixed(0)}</span>
-                                            <button className="p-1 rounded bg-stone-100 text-stone-500 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                                            <span className="font-bold text-orange-600">₹{product.price.toLocaleString()}</span>
+                                            <button className="p-1 rounded bg-stone-100 text-stone-500 group-hover:bg-orange-500 group-hover:text-white transition-all ml-auto">
                                                 <Plus size={14} />
                                             </button>
                                         </div>
                                     </div>
                                 </div>
                             )) : (
-                                <div className="text-stone-400 text-sm">No specific furniture matches found.</div>
+                                <div className="text-stone-400 text-sm p-4 border border-dashed rounded-xl">
+                                    No exact furniture matches found in catalog. Try a different sketch!
+                                </div>
                             )}
                         </div>
 
-                        <div className="mt-12 p-6 bg-[#F6F6F6] rounded-2xl">
-                            <div className="flex items-center gap-3 mb-4">
-                                <QrCode className="text-stone-800" size={24} />
-                                <div className="font-bold text-stone-800 uppercase tracking-widest text-xs">Experience Center</div>
-                            </div>
-                            <p className="text-stone-500 text-xs mb-4">
-                                Save this design to your profile and scan at any Urban Ladder store to view fabrics.
-                            </p>
-                            <div className="w-full h-32 bg-white border border-stone-200 rounded-lg flex items-center justify-center">
-                                <div className="text-center">
-                                    <div className="text-[10px] font-black text-stone-300">SCAN ME</div>
-                                    <div className="font-mono font-bold text-[#8B5E3C]">UL-AURA-8X</div>
+                            <div className="mt-12 p-6 bg-[#F6F6F6] rounded-2xl">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <QrCode className="text-stone-800" size={24} />
+                                    <div className="font-bold text-stone-800 uppercase tracking-widest text-xs">Experience Center</div>
+                                </div>
+                                <p className="text-stone-500 text-xs mb-4">
+                                    Save this design to your profile and scan at any Urban Ladder store to view fabrics.
+                                </p>
+                                <div className="w-full h-32 bg-white border border-stone-200 rounded-lg flex items-center justify-center">
+                                    <div className="text-center">
+                                        <div className="text-[10px] font-black text-stone-300">SCAN ME</div>
+                                        <div className="font-mono font-bold text-[#8B5E3C]">UL-AURA-8X</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    );
+            );
 };
 
-export default DesignStudio;
+            export default DesignStudio;

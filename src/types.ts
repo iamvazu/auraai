@@ -18,6 +18,8 @@ export interface SpatialObject {
   bbox: [number, number, number, number];
   confidence: number;
   suggestedSKU?: string;
+  search_query?: string;
+  visual_characteristics?: string;
 }
 
 export interface VastuViolation {

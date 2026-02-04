@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AnalysisResult } from "../types";
 import { detectObjectsInSketch } from "../utils/visionLogic";
+import { findBestMatch } from "../utils/productMatcher";
 
 // Drastically increased resilience for environments with very tight rate limits
 const MAX_RETRIES = 5;
@@ -93,20 +94,21 @@ export const analyzeSketch = async (base64Image: string, userPrompt: string = ""
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            sceneType: { type: Type.STRING, enum: ['room_perspective', 'furniture_collage', 'floor_plan', 'detail_shot'] },
             objects: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   object: { type: Type.STRING },
+                  visual_characteristics: { type: Type.STRING, description: "Detailed visual description of price, material, color, and style" },
+                  search_query: { type: Type.STRING, description: "Best 3-4 word search query to find this item in a furniture catalog" },
                   bbox: { type: Type.ARRAY, items: { type: Type.NUMBER } },
                   confidence: { type: Type.NUMBER },
-                  suggestedSKU: { type: Type.STRING }
                 },
-                required: ["object", "bbox"]
+                required: ["object", "bbox", "visual_characteristics", "search_query"]
               }
             },
-            sceneType: { type: Type.STRING, enum: ['room_perspective', 'furniture_collage', 'floor_plan', 'detail_shot'] },
             architecture: {
               type: Type.ARRAY,
               items: {
@@ -233,6 +235,24 @@ export const generateRenders = async (sketchBase64: string, analysis: AnalysisRe
 // Fallback logic extracted from previous implementation
 function getFallbackRenders(analysis: AnalysisResult): string[] {
   const renders: string[] = [];
+
+  // SMART FALLBACK: Use the images of the matched products!
+  if (analysis.objects && analysis.objects.length > 0) {
+    analysis.objects.forEach(obj => {
+      const match = findBestMatch(obj.search_query || obj.object, obj.visual_characteristics || "");
+      if (match) {
+        renders.push(match.image);
+      }
+    });
+  }
+
+  // If we found matched product images, return unique ones (up to 3)
+  const uniqueRenders = [...new Set(renders)];
+  if (uniqueRenders.length > 0) {
+    return uniqueRenders.slice(0, 3);
+  }
+
+  // LAST RESORT: Random Unsplash if NO matches found
   const roomType = analysis.roomType ? analysis.roomType.toLowerCase() : 'living';
   const sceneType = analysis.sceneType || 'room_perspective';
 
