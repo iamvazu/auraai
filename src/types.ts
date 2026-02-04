@@ -46,6 +46,7 @@ export interface AnalysisResult {
   remedies: VastuRemedy[];
   summary: string;
   roomType: string;
+  sceneType?: 'room_perspective' | 'furniture_collage' | 'floor_plan' | 'detail_shot';
   layoutAnalysis?: string;
   remedialPath?: string;
 }
